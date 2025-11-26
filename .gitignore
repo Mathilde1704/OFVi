@@ -1,0 +1,6 @@
+/data/
+/doc/
+/figures/
+.Rproj.user
+.Rhistory
+*.Rproj
