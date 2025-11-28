@@ -5,6 +5,11 @@ library(foreach)
 library(doParallel)
 library(readr)
 
+
+site_plot_id = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/plot_id_identifiant.csv", sep = ";")
+desnite_ref = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/plot_id_identifiant.csv", sep = ";")
+
+
 mindourou = read_rds("données_lidar/QSM/res_aRchi_list_mindourou.rds")
 mikembo = read_rds("données_lidar/QSM/res_aRchi_list_mikembo.rds")
 ntui = read_rds("données_lidar/QSM/res_aRchi_list_ntui.rds")
@@ -49,27 +54,93 @@ sites_list <- list(
 
 ####################### Calculer des metriques #######################
 
-####### VOLUME ####### 
+############# VOLUME ############# 
 
 #### TreeVolume 
+df_tree <- data.frame(
+  Site = character(),
+  TreeID = character(),
+  TreeVolume_total = numeric(),
+  Treebiomass = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
 for (site_name in names(sites_list)) {
   for (tree_name in names(sites_list[[site_name]])) {
     
     archi_obj <- sites_list[[site_name]][[tree_name]] 
     vol_tree <- TreeVolume(archi_obj, "Tree")
-    archi_obj@QSM$TreeVolume_total <- vol_tree
+    biomass_tree <- TreeBiomass(archi_obj, WoodDensity = 550, "Tree")
     
-    archi_obj@QSM$TreeID <- tree_name
-    archi_obj@QSM$Site   <- site_name
-    # remettre l'objet modifié dans la liste
-    sites_list[[site_name]][[tree_name]] <- archi_obj
+    
+    df_tree <- rbind(df_tree, data.frame(
+      Site = site_name,
+      TreeID = tree_name,
+      TreeVolume_total = vol_tree,
+      Treebiomass = biomass_tree,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+df_tree
+
+
+#### branching order
+df_branching_order <- data.frame(
+  Site = character(),
+  TreeID = character(),
+  branching_order_volume = numeric(),
+  branching_order_biomass = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
+for (site_name in names(sites_list)) {
+  for (tree_name in names(sites_list[[site_name]])) {
+    
+    archi_obj <- sites_list[[site_name]][[tree_name]] 
+    vol_branching_order <- TreeVolume(archi_obj, "branching_order")
+    biomass_branching_order <- TreeBiomass(archi_obj, WoodDensity = 550, "branching_order")
+    
+    
+    df_branching_order <- rbind(df_branching_order, data.frame(
+      Site = site_name,
+      TreeID = tree_name,
+      branching_order_volume = vol_branching_order,
+      branching_order_biomass = biomass_branching_order,
+      stringsAsFactors = FALSE
+    ))
   }
 }
 
-#### branching order
-vol_bo_vec <- unlist(vol_branching_order, use.names = TRUE)
-archi_obj@QSM$branching_order_Volume <-
-  vol_bo_vec[ as.character(archi_obj@QSM$branching_order) ]
+
+#### axis
+df_axis <- data.frame(
+  Site = character(),
+  TreeID = character(),
+  axis_volume = numeric(),
+  axis_biomass = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
+for (site_name in names(sites_list)) {
+  for (tree_name in names(sites_list[[site_name]])) {
+    
+    archi_obj <- sites_list[[site_name]][[tree_name]] 
+    vol_axis <- TreeVolume(archi_obj, "Axis")
+   biomass_axis <- TreeBiomass(archi_obj, WoodDensity = 550, "Axis")
+    
+    df_axis <- rbind(df_axis, data.frame(
+      Site = site_name,
+      TreeID = tree_name,
+      axis_volume = vol_axis,
+      axis_biomass = biomass_axis,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
 
 
 #### Volume pour un arbre
@@ -86,6 +157,7 @@ tv_ex <- TreeVolume(archi_obj, "Tree")
 names(tv_ex) <- paste(site_name, tree_name, sep = "_")
 tv_ex
 
+############# BIOMASSE ############# 
 
 ### re Renommmer colonne Volume en volume 
 
@@ -96,16 +168,33 @@ for (site_name in names(sites_list)) {
     }
   }
 }
- 
-## REPRENDRE ici
-###Biomasse pour 1 arbre
-id_test <- names(res_final)[1]
-TreeBiomass(res_final[[id_test]], WoodDensity = 550, level = "Tree")
+
 ###Biomasse pour tous les arbres
-tb_all <- sapply(res_final, function(a) {
-  TreeBiomass(a, WoodDensity = 550, level = "Tree")
-})
-tb_all
+#### TreeBiomass 
+df_tree_biomass <- data.frame(
+  Site = character(),
+  TreeID = character(),
+  TreeVolume_total = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
+for (site_name in names(sites_list)) {
+  for (tree_name in names(sites_list[[site_name]])) {
+    
+    archi_obj <- sites_list[[site_name]][[tree_name]] 
+    vol_tree <- TreeVolume(archi_obj, "Tree")
+    
+    
+    df_tree_volume <- rbind(df_tree_volume, data.frame(
+      Site = site_name,
+      TreeID = tree_name,
+      TreeVolume_total = vol_tree,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+df_tree_volume
 
 
 ###df avec les métriques

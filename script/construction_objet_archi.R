@@ -12,7 +12,7 @@ cl=makeCluster(n_cores)
 registerDoParallel(cl)
 
 ## chargement fichiers
-qsm_dir <- "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/données_lidar/QSM/QSM upemba"
+qsm_dir <- "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/données_lidar/QSM/QSM bouamir P3"
 qsm_files <- list.files(qsm_dir, pattern = "\\.txt$", full.names = TRUE)
 
 # Traiter tous les fichiers en parallèle
