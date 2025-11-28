@@ -7,8 +7,11 @@ library(readr)
 
 
 site_plot_id = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/plot_id_identifiant.csv", sep = ";")
-desnite_ref = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/plot_id_identifiant.csv", sep = ";")
+densite_ref = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/global_wood_density_database.csv", sep = ";")
+average_density = aggregate(Wood.density..kg.m3.~ Binomial, data = densite_ref, FUN = mean, na.rm = TRUE)
+average_density$identifiant <- site_plot_id$identifiant[match(average_density$Binomial,site_plot_id$species)]
 
+#write.csv2(average_density, file = "average_density.csv")
 
 mindourou = read_rds("données_lidar/QSM/res_aRchi_list_mindourou.rds")
 mikembo = read_rds("données_lidar/QSM/res_aRchi_list_mikembo.rds")
@@ -21,36 +24,6 @@ sites_list <- list(
   ntui      = ntui,
   upemba    = upemba
 )
-
-
-### Création df mais pas obligatoire. 
-# all_dt_list <- list()
-# 
-# for (site_name in names(sites_list)) {
-#   res_site <- sites_list[[site_name]]  # liste d'aRchi pour ce site
-#   
-#   for (tree_name in names(res_site)) {
-#     archi_obj <- res_site[[tree_name]]
-#     
-#     dt <- as.data.table(archi_obj@QSM)
-#     
-#     # S'assurer qu'on a un TreeID
-#     if (!"TreeID" %in% names(dt)) {
-#       dt[, TreeID := tree_name]
-#     }
-#     
-#     # Ajouter le site
-#     dt[, Site := site_name]
-#     
-#     all_dt_list[[paste(site_name, tree_name, sep = "_")]] <- dt
-#   }
-# }
-# 
-# dt_all <- rbindlist(all_dt_list, use.names = TRUE, fill = TRUE)
-# 
-# dt_all[]
-
-
 
 ####################### Calculer des metriques #######################
 
@@ -65,14 +38,25 @@ df_tree <- data.frame(
   stringsAsFactors = FALSE
 )
 
-
 for (site_name in names(sites_list)) {
   for (tree_name in names(sites_list[[site_name]])) {
     
-    archi_obj <- sites_list[[site_name]][[tree_name]] 
-    vol_tree <- TreeVolume(archi_obj, "Tree")
-    biomass_tree <- TreeBiomass(archi_obj, WoodDensity = 550, "Tree")
+    archi_obj = sites_list[[site_name]][[tree_name]] 
+    vol_tree = TreeVolume(archi_obj, "Tree")
     
+    density = average_density$Wood.density..kg.m3.[average_density$identifiant == tree_name]
+    
+    # Si l'identifiant n'est pas trouvé, utiliser une valeur par défaut
+    if(length(density) == 0) {
+      warning(paste("Identifiant", tree_name, "non trouvé dans average_density"))
+      density <- 550 # valeur par défaut
+    } else {
+      # IMPORTANT : prendre seulement la première valeur si plusieurs matches
+      density <- density[1]
+    }
+    
+    # Calculer la biomasse avec  densité spécifique à l'espèce
+    biomass_tree <- TreeBiomass(archi_obj, WoodDensity = density, level = "Tree")
     
     df_tree <- rbind(df_tree, data.frame(
       Site = site_name,
@@ -83,8 +67,43 @@ for (site_name in names(sites_list)) {
     ))
   }
 }
+    
 df_tree
 
+# Test avec upemba_p2_ID_33
+test_id <- "upemba_p2_ID_33"
+test_density <- average_density$Wood.density..kg.m3.[average_density$identifiant == test_id]
+
+print(paste("TreeID:", test_id))
+print(paste("Densité trouvée:", test_density))
+print(paste("Classe densité:", class(test_density)))
+
+# Vérifier que l'arbre existe
+if(test_id %in% names(sites_list$upemba)) {
+  
+  test_tree <- sites_list$upemba[[test_id]]
+  
+  # Calculer volume
+  test_vol <- TreeVolume(test_tree, "Tree")
+  print(paste("Volume:", test_vol))
+  
+  # Calculer biomasse
+  test_biomass <- TreeBiomass(test_tree, WoodDensity = test_density, level = "Tree")
+  print(paste("Biomasse TreeBiomass:", test_biomass))
+  
+  # Calcul manuel
+  biomass_manuelle <- test_vol * test_density
+  print(paste("Biomasse manuelle (volume * densité):", biomass_manuelle))
+  
+  # Vérifier le QSM
+  print(paste("Nombre de cylindres:", nrow(test_tree@QSM)))
+  print(paste("NA dans Volume?:", sum(is.na(test_tree@QSM$Volume))))
+  
+} else {
+  print("ERREUR: upemba_p2_ID_33 n'existe pas dans sites_list$upemba")
+  print("Arbres disponibles:")
+  print(names(sites_list$upemba))
+}
 
 #### branching order
 df_branching_order <- data.frame(
