@@ -3,7 +3,7 @@ library(lidR)
 library(data.table)
 library(dplyr)
 library(purrr)
-
+#test_12_2_
 # ============================================
 # CONFIGURATION : Liste de tes sites
 # ============================================
