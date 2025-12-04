@@ -4,7 +4,7 @@ library(data.table)
 library(foreach)
 library(doParallel)
 library(readr)
-
+# test
 # start parallélisation
 n_cores=min(5, detectCores() - 1)
 cat("Utilisation de", n_cores, "cœurs\n")
