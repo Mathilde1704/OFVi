@@ -4,130 +4,149 @@ library(data.table)
 library(foreach)
 library(doParallel)
 library(readr)
-# test
-# start parallélisation
-n_cores=min(5, detectCores() - 1)
+
+
+#### Mettre à jour aRchi via github car par sur CRAN
+#install.packages("remotes")
+#remotes::install_github('umr-amap/aRchi')
+
+qsm_dir <- "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/BDD_Afrique_Centrale/données_lidar/QSM/QSM ntui"
+qsm_files <- list.files(qsm_dir, pattern = "\\.txt$", full.names = TRUE)
+length(qsm_files)
+
+# Parallélisation
+n_cores <- min(6, detectCores() - 1)
 cat("Utilisation de", n_cores, "cœurs\n")
-cl=makeCluster(n_cores)
+cl <- makeCluster(n_cores)
 registerDoParallel(cl)
 
-## chargement fichiers
-qsm_dir <- "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/données_lidar/QSM/QSM bouamir P3"
-qsm_files <- list.files(qsm_dir, pattern = "\\.txt$", full.names = TRUE)
-
-# Traiter tous les fichiers en parallèle
+# Boucle sur tt ma liste
 res <- foreach(p = qsm_files, .packages = c("aRchi", "lidR", "data.table")) %dopar% {
   id <- sub("\\.txt$", "", basename(p))
   
-  # Tout dans un seul try-catch
-  result <- tryCatch({
-    # Lire et construire
+  tryCatch({
+    # Lecture du QSM
     myqsm <- suppressWarnings(read_QSM(p, model = "treeQSM"))
-    myarchi <- build_aRchi(QSM = myqsm)
-    myarchi@QSM$TreeID <- id
-    if ("volume" %in% names(myarchi@QSM) && !"Volume" %in% names(myarchi@QSM)) {
-      setnames(myarchi@QSM, "volume", "Volume")
-    }
-    myarchi <- Make_Node(myarchi)
-    myarchi <- Make_Path(myarchi)
+    # Stratégie : essayer d'abord avec keep_original = TRUE Si ça échoue, refaire avec keep_original = FALSE
+    build_result <- tryCatch({
+      myarchi <- build_aRchi(QSM = myqsm, keep_original = TRUE)
+      myarchi <- Make_Node(myarchi)
+      myarchi <- Make_Path(myarchi)
+      list(archi = myarchi, reconstructed = FALSE, error = NA)
+      
+    }, error = function(e) {
+      # Si échec, reconstruction avec topologie interne
+      myarchi <- build_aRchi(QSM = myqsm, keep_original = FALSE)
+      myarchi <- Make_Node(myarchi)
+      
+      # Tentative Make_Path
+      path_result <- tryCatch({
+        myarchi <- Make_Path(myarchi)
+        list(archi = myarchi, reconstructed = TRUE, error = NA)
+      }, error = function(e2) {
+        # Même avec reconstruction, Make_Path échoue
+        list(archi = myarchi, reconstructed = TRUE, error = conditionMessage(e2))
+      })
+      
+      return(path_result)
+    })
     
-    list(id = id, archi = myarchi, ok = TRUE)
+    build_result$archi@QSM$TreeID <- id
+    if ("volume" %in% names(build_result$archi@QSM) &&
+        !"Volume" %in% names(build_result$archi@QSM)) {
+      setnames(build_result$archi@QSM, "volume", "Volume")
+    }
+    
+    list(
+      id = id,
+      archi = build_result$archi,
+      qsm_path = p,
+      ok = TRUE,
+      path_ok = is.na(build_result$error),
+      path_erreur = build_result$error,
+      reconstructed = build_result$reconstructed
+    )
     
   }, error = function(e) {
-    list(id = id, archi = NULL, ok = FALSE, erreur = e$message)
+    # Échec complet (lecture QSM ou autre problème majeur)
+    list(
+      id = id,
+      archi = NULL,
+      qsm_path = p,
+      ok = FALSE,
+      path_ok = FALSE,
+      path_erreur = conditionMessage(e),
+      reconstructed = NA
+    )
   })
-  
-  return(result)
 }
 
-# stop parallélisation
 stopCluster(cl)
 
-# Extraire les résultats 
+# Extraction des résultats
 res_final <- list()
-erreurs <- list()
+erreurs <- data.frame(
+  id = character(),
+  qsm_path = character(),
+  erreur = character(),
+  stringsAsFactors = FALSE
+)
+avertissements_path <- data.frame(
+  id = character(),
+  qsm_path = character(),
+  probleme = character(),
+  reconstructed = logical(),
+  stringsAsFactors = FALSE
+)
 
 for (item in res) {
+  # Garder tous les arbres chargés
   if (item$ok) {
     res_final[[item$id]] <- item$archi
-  } else {
-    erreurs[[item$id]] <- item$erreur
-    cat("❌", item$id, ":", item$erreur, "\n")
+  }
+  
+  # Tableau d'erreurs pour les échecs complets
+  if (!item$ok) {
+    erreurs <- rbind(erreurs, data.frame(
+      id = item$id,
+      qsm_path = item$qsm_path,
+      erreur = item$path_erreur,
+      stringsAsFactors = FALSE
+    ))
+    cat("❌", item$id, ":", item$path_erreur, "\n")
+    
+  } else if (!item$path_ok) {
+    # Arbres chargés MAIS sans Make_Path
+    avertissements_path <- rbind(avertissements_path, data.frame(
+      id = item$id,
+      qsm_path = item$qsm_path,
+      probleme = item$path_erreur,
+      reconstructed = item$reconstructed,
+      stringsAsFactors = FALSE
+    ))
+    
+    recon_msg <- ifelse(item$reconstructed, " (topologie reconstruite)", "")
+    cat("⚠️ ", item$id, ": Make_Path échoué", recon_msg, " -", item$path_erreur, "\n")
+  } else if (item$reconstructed) {
+    # Arbres OK mais avec reconstruction (info seulement)
+    cat("ℹ️ ", item$id, ": topologie reconstruite (OK)\n")
   }
 }
+
 # Résumé
-cat("\n✅ Succès:", length(res_final), "/", length(qsm_files), "\n")
-cat("❌ Erreurs:", length(erreurs), "\n")
-# résultat final 
-res <- res_final
+cat("✅ Arbres chargés:", length(res_final), "/", length(qsm_files), "\n")
+cat("❌ Échecs complets:", nrow(erreurs), "\n")
+cat("⚠️  Arbres sans Make_Path:", nrow(avertissements_path), "\n")
 
-
-###sauvegarde 
-saveRDS(res, "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/données_lidar/QSM/res_aRchi_list_upemba.rds")
-
-
-#### Prb ####
-
-### trouver prb dans caclul biomasse
-
-id <- "mindourou_p1_ID_12"
-
-summary(res_final[[id]]@QSM$radius_cyl)
-summary(res_final[[id]]@QSM$volume)
-summary(res_final[[id]]@QSM$length)
-
-q <- res_final[[id]]@QSM
-head(q[order(-q$volume), ], 10)
-
-ratio <- tb_all / (tv_all * 550)
-summary(ratio)
-
-### Visualisation QSM
-plot(res_final$mindourou_p1_ID_1)
-plot(res_final$mindourou_p1_ID_100)
-plot(res_final$mindourou_p1_ID_99)
-
-############################### Visu de qq variable sur site ###############################
-
-### volume par arbre 
-id_tree <- names(res_final)[2]
-tv_ex <- TreeVolume(res_final[[2]], "Tree")
-names(tv_ex) <- id_tree
-tv_ex
-
-
-###Volume pour tous les arbres
-tv_all <- sapply(res_final, function(a) TreeVolume(a, "Tree"))
-tv_all
-df_vol <- data.frame(
-  TreeID = names(tv_all),
-  Volume = as.numeric(tv_all),
-  row.names = NULL
-)
-
-
-## re Renommmer colonne Volume en volume 
-
-for (id in names(res_final)) {
-  res_final[[id]]@QSM$volume <- res_final[[id]]@QSM$Volume
+if (nrow(avertissements_path) > 0) {
+  n_reconstructed <- sum(avertissements_path$reconstructed, na.rm = TRUE)
+  cat("   - dont topologie reconstruite:", n_reconstructed, "\n")
+  cat("   - dont topologie originale:", nrow(avertissements_path) - n_reconstructed, "\n")
 }
-###Biomasse pour 1 arbre
-id_test <- names(res_final)[1]
-TreeBiomass(res_final[[id_test]], WoodDensity = 550, level = "Tree")
-###Biomasse pour tous les arbres
-tb_all <- sapply(res_final, function(a) {
-  TreeBiomass(a, WoodDensity = 550, level = "Tree")
-})
-tb_all
 
+# combien d'arbres reconstruits avec succès
+n_reconstructed_ok <- sum(sapply(res, function(x) x$ok && x$path_ok && x$reconstructed))
+cat("ℹ️  Arbres avec topologie reconstruite (OK):", n_reconstructed_ok, "\n")
 
-###df avec les métriques
-
-df_archi <- data.frame(
-  TreeID  = names(tv_all),
-  Volume  = as.numeric(tv_all),
-  Biomass = as.numeric(tb_all[names(tv_all)]),  # on aligne bien les noms
-  row.names = NULL
-)
-
-df_archi
+###sauvegarde
+saveRDS(res_final, "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/BDD_Afrique_Centrale/données_lidar/QSM/list_archi/res_aRchi_list_ntui.rds")
