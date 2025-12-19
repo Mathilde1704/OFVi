@@ -7,7 +7,7 @@ library(FactoMineR)
 library(factoextra)
 
 #Regarder volume pour tree_height = X
-
+df_tree =read.csv("F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/BDD_Afrique_Centrale/R_output_file/df_tree.csv", header = T, sep = ";") 
 df_tree[ abs(df_tree$Tree_height - 49.32197) < 1e-6 , ]
 
 hist(df_tree$Tree_volume)
@@ -117,12 +117,45 @@ pval <- s$coefficients["Tree_height", "Pr(>|t|)"]
 ### dif entre sites
 par (mar= c(8,4,4,2))
 
-boxplot(Path_fraction ~ Site,
+
+ggplot(df_tree, aes(Site, Path_fraction)) +
+  geom_boxplot() +
+  theme_classic()
+
+ggplot(df_tree, aes(Density_used, Path_fraction)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme_classic() +
+  labs(x = "Wood density (proxy for growth strategy)",
+       y = "Path fraction")
+
+m1 <- lm(Path_fraction ~ Density_used, data = df_tree)
+summary(m1)
+
+ggplot(df_tree, aes(Site, Density_used)) +
+  geom_boxplot() +
+  theme_classic()
+
+
+boxplot(Path_fraction ~ species_final,
         data = df_tree,
         las = 2,
         main = "Variabilité de Path Fraction selon les sites",
         xlab = "",
         ylab = "Path Fraction")
+
+df_bouamir <- subset(df_tree,
+                    Site == "mikembo" &
+                      !is.na(Path_fraction) &
+                      !is.na(species_final))
+
+boxplot(Path_fraction ~ species_final,
+        data = df_bouamir,
+        las = 2,
+        main = "Variabilité de Path Fraction selon les sites",
+        xlab = "",
+        ylab = "Path Fraction")
+
 
 anova_mod <- aov(Path_fraction ~ Site, data = df_tree)
 summary(anova_mod)
@@ -162,7 +195,7 @@ ggplot(df_dai, aes(x = Site, y = DAI)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-m <- lmer(DAI ~ Tree_height + Site + (1|species), data = df_tree)
+m <- lmer(DAI ~ Tree_height + Site + (1|species_final), data = df_tree)
 anova(m)
 
 ggplot(df_dai, aes(x = SizeClass , y = DAI)) +
@@ -282,11 +315,51 @@ df_tree2 = df_tree %>%
    ) +
    theme(legend.position = "none")
  
+ anova(lm(log10(Tree_biomass) ~ Site, data = df_tree))
+ 
+ ggplot(df_tree, aes(x = log10(Tree_volume), y = log10(Tree_biomass))) +
+   geom_point(alpha = 0.3) +
+   geom_smooth(method = "lm", se = TRUE) +
+   theme_classic() +
+   labs(
+     x = "log10(Tree volume)",
+     y = "log10(Tree biomass)",
+     title = paste0("log10(Biomass) ~ log10(Volume)  |  R² = ", round(r2, 3))
+   )
+ 
+ m = lm(log10(Tree_biomass) ~ log10(Tree_volume), data = df_tree)
+ r2 <- summary(m)$r.squared
  
  ggplot(df_tree, aes(x = Site, y = log_biomass)) +
    geom_violin(fill = "grey80") +
    geom_boxplot(width = 0.1, outlier.shape = NA) +
    theme_minimal()
+ 
+ 
+ ###est ce que traits archi impact le volume ?
+ m_vol_archi <- lm(
+   log10(Tree_volume) ~ Path_fraction + ForkRate + DAI,
+   data = df_tree
+ )
+ 
+ summary(m_vol_archi)
+ 
+ m_archi <- lm(
+   log10(Tree_biomass) ~ log10(Tree_volume) +
+     Path_fraction + ForkRate + DAI,
+   data = df_tree
+ )
+ 
+ summary(m_archi)
+ 
+ ## effet archi sur biomasse
+ m_archi <- lm(
+   log10(Tree_biomass) ~ log10(Tree_volume) +
+     Path_fraction + ForkRate + DAI,
+   data = df_tree
+ )
+ summary(m_archi)
+ 
 
  ## biomasse vs  DAI 
  ggplot(df_tree, aes(x = DAI, y = log_biomass, color = Site)) +
@@ -294,4 +367,107 @@ df_tree2 = df_tree %>%
    geom_smooth(method = "lm", se = FALSE) +
    theme_minimal() +
    labs(x = "DAI", y = "log10(biomasse)") 
+ 
+ ######################### FORKRATE  ######################### 
+
+ hist(df_tree$ForkRate, breaks = seq(0, 30, by = 1),
+      main  = "Histogramme Branch angle",
+      xlab  = "branch angle ",
+      ylab  = "Fréquence")
+ 
+  ggplot(df_tree, aes(Site, ForkRate)) +
+   geom_boxplot() +
+   geom_jitter(width = 0.2, alpha = 0.3) +
+   theme_classic() +
+   labs(y = "Fork rate (forks per meter)")
+ 
+ 
+ anova(lm(ForkRate ~ Site, data = df_tree))
+ 
+ 
+ ggplot(df_tree, aes(ForkRate)) +
+   geom_histogram(bins = 40) +
+   facet_wrap(~Site, scales = "free_y") +
+   theme_classic()
+ 
+ library(lme4)
+ 
+ m_fork <- lmer(ForkRate ~ 1 + (1|Site), data = df_tree)
+ summary(m_fork)
+ VarCorr(m_fork)
+ 
+ ICC <- 1.155 / (1.155 + 2.313)
+ ICC
+ 
+ m_fork2 <- lmer(ForkRate ~ Density_used + (1|Site), data = df_tree)
+ summary(m_fork2)
+ VarCorr(m_fork2)
+ 
+ ggplot(df_tree, aes(Density_used, ForkRate)) +
+   geom_point(alpha = 0.4) +
+   geom_smooth(method = "lm", se = TRUE) +
+   theme_classic() +
+   labs(x = "Wood density (proxy for growth strategy)",
+        y = "Path fraction")
+ 
+ m1 <- lm(ForkRate ~ Density_used, data = df_tree)
+ summary(m1)$r.squared
+ summary(m1)
+ anova_mod <- aov(ForkRate ~ Density_used, data = df_tree)
+ summary(anova_mod)
+ tukey_res <- TukeyHSD(anova_mod)
+ 
+ 
+ 
+ ggplot(df_tree, aes(Path_fraction, ForkRate)) +
+   geom_point(alpha = 0.8) +
+   geom_smooth(method = "lm", se = TRUE) +
+   theme_classic() +
+   labs(x = "Wood density (proxy for growth strategy)",
+        y = "Path fraction")
+ 
+ 
+ ggplot(df_tree, aes(DBh_inventory, ForkRate)) +
+   geom_point(alpha = 0.4) +
+   geom_smooth(method = "lm", se = TRUE) +
+   theme_classic() +
+   labs(x = "Wood density (proxy for growth strategy)",
+        y = "Path fraction")
+ 
+ 
+ ### form factor
+ ggplot(df_tree, aes(Site, form_factor)) +
+   geom_boxplot(outlier.shape = NA) +
+   geom_jitter(width = 0.2, alpha = 0.2) +
+   scale_y_log10() +
+   theme_classic() +
+   labs(y = "Total form factor (log scale)")
+
+ ggplot(df_tree, aes(x = species_final, y = form_factor)) +
+   geom_boxplot(outlier.alpha = 0.3) +
+   facet_wrap(~ Site, scales = "free_y") +
+   theme_classic() +
+   theme(
+     axis.text.x = element_text(angle = 45, hjust = 1)
+   ) +
+   labs(
+     x = "Species",
+     y = "Total form factor"
+   )
+ 
+ df_tree %>%
+   group_by(Site) %>%
+   summarise(
+     n = n(),
+     mean_F = mean(form_factor, na.rm = TRUE),
+     sd_F   = sd(form_factor, na.rm = TRUE),
+     CV_F   = sd_F / mean_F
+   )
+ 
+ 
+ ggplot(df_tree, aes(Site, form_factor)) +
+   geom_violin(fill = "grey80") +
+   geom_boxplot(width = 0.15, outlier.shape = NA) +
+   theme_classic() +
+   labs(y = "Total form factor")
  
