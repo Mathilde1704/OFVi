@@ -7,7 +7,7 @@ library(readr)
 
 getwd()
 
-site_plot_id = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/plot_id_identifiant.csv", sep = ";")
+site_plot_id = read.csv("données_lidar/QSM/list_identifiant_QSM.csv ", header = TRUE, sep = ";")
 lien_qsm_inventaire = read.csv("data/raw_data/inventaires floristiques/fichier_lien_qsm_inventaire.csv", sep = ";")
 densite_ref = read.csv("data/raw_data/inventaires floristiques/inventaire_Gilles_Dauby/global_wood_density_database.csv", sep = ";")
 densite_ref = aggregate(Wood.density..kg.m3. ~ Binomial, data = densite_ref, FUN = mean, na.rm = TRUE )
@@ -23,7 +23,7 @@ site_plot_id$Wood_density_inventaire <- site_plot_id$Wood_density_inventaire * 1
 site_plot_id$Wood_density_inventaire <- as.integer(site_plot_id$Wood_density_inventaire)
 
 site_plot_id$Wood_density_article <- densite_ref$Wood.density..kg.m3.[
-  match(site_plot_id$species, densite_ref$Binomial)
+  match(site_plot_id$tax_sp_inventaire, densite_ref$Binomial)
 ]
 
 site_plot_id$Wood_density_inventaire[site_plot_id$Wood_density_inventaire == ""] <- NA
@@ -169,20 +169,10 @@ df_tree$Tree_height <- mapply(
   tree_name = df_tree$TreeID
 )
 
-#############
-sp  <- trimws(as.character(site_plot_id$species))
-tax <- trimws(as.character(site_plot_id$tax_sp_inventaire))
-
-sp[sp == ""]   <- NA
-tax[tax == ""] <- NA
-
-site_plot_id$species_final <- sp
-site_plot_id$species_final[is.na(site_plot_id$species_final)] <- tax[is.na(site_plot_id$species_final)]
-
-
-df_tree$species_final <- site_plot_id$species_final[
-  match(df_tree$TreeID, site_plot_id$identifiant)]
-
+############# ajouter le noms des espèces dans df_tree
+df_tree$species =  densite_ref$Wood.density..kg.m3.[
+    match(df_tree$TreeID, site_plot_id$identifiant)
+  ]
 
 df_tree$DBh_inventory <- site_plot_id$DBH_inventory[
   match(df_tree$TreeID, site_plot_id$identifiant)]
@@ -193,6 +183,19 @@ df_tree$phenology <- site_plot_id$phenology[
 df_tree$succession_guild <- site_plot_id$succession_guild[
   match(df_tree$TreeID, site_plot_id$identifiant)]
 
+write.csv(df_tree, file = "R_output_file/df_tree.csv", row.names = FALSE)
+
+
+### Calcul du facteur de form 
+
+#DBH en metre
+DBH_metre = df_tree$DBh_inventory / 100
+
+##Volume du cylindre théorique
+V_cylinder = pi * (DBH_metre^2 / 4) * df_tree$Tree_height
+
+##Facteur de forme
+df_tree$form_factor = df_tree$Tree_volume / V_cylinder
 
 ########################################## Metrique calculé à partir du NDP 
 # install.packages("devtools")
@@ -234,6 +237,7 @@ df_metriques
 df_metriques$epaisseur_moy = df_metriques$volume_alpha_m3 / df_metriques$surface_projetee_m2
 df_metriques$espace_occupe = df_metriques$volume_alpha_m3 / ((df_metriques$surface_projetee_m2)*(df_metriques$hauteur_m))
 
+#### tous les arbres
 dir_ndp <- "F:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/BDD_Afrique_Centrale/données_lidar/NDP/NDP_sites"
 files <- list.files(dir_ndp, pattern = "\\.txt$", full.names = TRUE, recursive = TRUE)
 
@@ -244,7 +248,7 @@ get_val <- function(x, name) {
   return(NA_real_)
 }
 
-# Fonction qui calcule les métriques pour 1 fichier
+#  calcule les métriques pour 1 fichier
 calc_metrics_one <- function(path) {
   arbre_id <- tools::file_path_sans_ext(basename(path))
  
@@ -256,8 +260,8 @@ calc_metrics_one <- function(path) {
   pa_out <- projected_area_pc(pc = pc_tree)
   surface_proj <- get_val(pa_out, "pa")
 
-  av_out <- alpha_volume_pc(pc = pc_tree)
-  volume_alpha <- get_val(av_out, "av")
+  #av_out <- alpha_volume_pc(pc = pc_tree)
+  #volume_alpha <- get_val(av_out, "av")
   
   position <- tree_position_pc(pc = pc_tree)
   px <- ifelse(length(position) >= 1, position[1], NA_real_)
@@ -278,7 +282,7 @@ calc_metrics_one <- function(path) {
     hauteur_m = hauteur,
     dbh_m = dbh,
     surface_projetee_m2 = surface_proj,
-    volume_alpha_m3 = volume_alpha,
+    #volume_alpha_m3 = volume_alpha,
     diametre_couronne_m = diametre_couronne,
     ratio_hauteur_largeur = ratio_H_L,
     position_x = px,
@@ -288,7 +292,31 @@ calc_metrics_one <- function(path) {
   )
 }
 
-# Boucle sur tous les fichiers avec gestion d'erreurs (très important en TLS)
+# Boucle sur tous les fichiers avec gestion d'erreurs 
+
+#install.packages(c("future", "future.apply"))
+library(future)
+library(future.apply)
+
+plan(multisession, workers = 2)
+
+res_list <- future_lapply(files, function(f) {
+  tryCatch(calc_metrics_one(f), error = function(e) {
+    data.frame(
+      arbre_id = tools::file_path_sans_ext(basename(f)),
+      fichier = f,
+      hauteur_m = NA_real_, dbh_m = NA_real_,
+      surface_projetee_m2 = NA_real_,
+      diametre_couronne_m = NA_real_, ratio_hauteur_largeur = NA_real_,
+      position_x = NA_real_, position_y = NA_real_, position_z = NA_real_,
+      error = conditionMessage(e),
+      stringsAsFactors = FALSE
+    )
+  })
+})
+
+df_metriques <- do.call(rbind, res_list)
+
 res_list <- lapply(files, function(f) {
   tryCatch(
     calc_metrics_one(f),
