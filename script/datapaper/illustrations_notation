@@ -1,0 +1,227 @@
+library(tidyverse)
+library(ggplot2)
+library(scales)
+
+# 1. Import
+df <- read.csv("G:/MathildeMillan_DD/articles/datapaper/données/note/note.csv", header = TRUE, sep = ";")
+inventaire = read.csv("G:/MathildeMillan_DD/OFVi/diversite_archi_afrique_centrale/BDD_Afrique_Centrale/BDD_Afrique_Centrale/data/raw_data/inventaires floristiques/fichier_lien_qsm_inventaire.csv", sep = ";")
+
+
+
+df$tax_sp_level <- inventaire$tax_sp_level[
+  match(df$identifiant_unique, inventaire$ID_unique)
+]
+
+df$DBH <- inventaire$DBH_inventory[
+  match(df$identifiant_unique, inventaire$ID_unique)
+]
+
+df_clean <- df %>%
+  filter(!if_all(c(tronc, couronne, ramification), ~ is.na(.) | . == ""))
+
+
+# Adapter ici si tes colonnes ont d'autres noms
+# site, plot, tree_id, qualite_tronc, qualite_couronne, qualite_ramifications
+
+# 2. Mettre les notes en format long
+df_long <- df_clean %>%
+  pivot_longer(
+    cols = c(tronc, couronne, ramification),
+    names_to = "partie_arbre",
+    values_to = "note"
+  ) %>%
+  mutate(
+    partie_arbre = recode(
+      partie_arbre,
+      tronc = "Tronc",
+      couronne = "Couronne",
+      ramification = "Ramifications"
+    ),
+    qualite = factor(
+      note,
+      levels = c(1, 2, 3),
+      labels = c("Mauvaise", "Moyenne", "Bonne")
+    )
+  )
+
+
+
+
+ggplot(df_long, aes(x = partie_arbre, fill = qualite)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(
+    breaks = seq(0, 1, by = 0.2),
+    labels = scales::percent
+  ) +
+  labs(
+    x = "",
+    y = "% d'arbres",
+    fill = "Qualité"
+  ) +
+  theme_minimal()+
+  scale_fill_manual(values = c("Mauvaise" = "brown",
+                               "Moyenne" = "deepskyblue3",
+                               "Bonne"= "chartreuse3",
+                               "NA" = "grey"))
+
+# 4. Pourcentage de qualité par site
+ggplot(df_long,
+       aes(x = site, fill = qualite)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ partie_arbre) +
+  scale_y_continuous(
+    breaks = seq(0,1,0.2),
+    labels = scales::label_percent()
+  ) +
+  labs(
+    x = "Site",
+    y = "% d'arbres",
+    fill = "Qualité"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_manual(values = c("Mauvaise" = "brown",
+                               "Moyenne" = "deepskyblue3",
+                               "Bonne"= "chartreuse3",
+                               "NA" = "grey"))
+
+
+
+ggplot(df_long,
+       aes(x = plot, fill = factor(note))) +
+  geom_bar(position = "fill") +
+  facet_grid(partie_arbre ~ site,
+             scales = "free_x",
+             space = "free_x") +
+  scale_fill_manual(
+    values = c(
+      "1" = "brown",
+      "2" = "deepskyblue3",
+      "3" = "chartreuse3"
+    ),
+    labels = c(
+      "1" = "Mauvaise",
+      "2" = "Moyenne",
+      "3" = "Bonne"
+    )
+  ) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(
+    x = "Plot",
+    y = "Proportion",
+    fill = "Qualité"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90))
+
+
+tab_n_plot <- df_clean %>%
+  group_by(site, plot) %>%
+  summarise(
+    n_arbres = n_distinct(ID),
+    .groups = "drop"
+  )
+
+ggplot(tab_n_plot,
+       aes(x = plot,
+           y = n_arbres)) +
+  geom_col(fill = "darksalmon") +
+  facet_wrap(~ site, scales = "free_x") +
+  labs(
+    x = "Plot",
+    y = "Nombre d'arbres",
+    title = "Nombre d'arbres notés par plot"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90))
+tab_n_plot <- df_clean %>%
+  group_by(site, plot) %>%
+  summarise(
+    n_arbres = n_distinct(ID),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    site_plot = paste(site, plot, sep = " - ")
+  )
+ggplot(tab_n_plot,
+       aes(x = reorder(site_plot, n_arbres),
+           y = n_arbres,
+           fill = site)) +
+  geom_col() +
+  geom_text(aes(label = n_arbres),
+            hjust = -0.2,
+            size = 3.5) +
+  expand_limits(y = max(tab_n_plot$n_arbres) * 1.15) +
+  coord_flip() +
+  labs(
+    x = "",
+    y = "Nombre d'arbres",
+    fill = "Site",
+    title = "Nombre d'arbres notés par plot"
+  ) +
+  theme_classic(base_size = 13)
+
+
+##espèce par site
+
+tab_species <- df %>%
+  filter(!is.na(tax_sp_level)) %>%
+  group_by(site) %>%
+  summarise(
+    n_species = n_distinct(tax_sp_level),
+    n_trees = n(),
+    .groups = "drop"
+  )
+
+tab_taxo <- df %>%
+  group_by(site) %>%
+  summarise(
+    n_especes = n_distinct(tax_sp_level, na.rm = TRUE),
+    n_non_identifies = sum(is.na(tax_sp_level)),
+    .groups = "drop"
+  )
+
+
+ggplot(tab_taxo,
+       aes(x = reorder(site, n_especes),
+           y = n_especes)) +
+  geom_col(fill = "forestgreen") +
+  
+  geom_text(
+    aes(label = n_especes),
+    vjust = -0.2,
+    size = 5
+  ) +
+  
+  geom_text(
+    aes(label = paste0("NA = ", n_non_identifies)),
+    color = "firebrick",
+    vjust = 1.8,
+    size = 4
+  ) +
+  
+  labs(
+    x = "Site",
+    y = "Nombre d'espèces identifiées"
+  ) +
+  theme_classic(base_size = 14)
+
+
+
+
+
+ggplot(df_clean,
+       aes(DBH, tronc))+
+  geom_jitter(height=0.1,width=0)+
+  geom_smooth(method="lm")
+
+
+ggplot(df_clean,
+       aes(x = factor(ramification),
+           y = DBH)) +
+  geom_boxplot() +
+  labs(
+    x = "Note du ramification",
+    y = "DBH"
+  ) +
+  theme_classic()
